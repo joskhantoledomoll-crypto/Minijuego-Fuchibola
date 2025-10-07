@@ -1,0 +1,763 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minijuego de Fútbol Moderno</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #222;
+      font-family: 'Roboto', sans-serif;
+    }
+    #gameContainer {
+      position: relative;
+      max-width: 100%;
+      max-height: 100vh;
+      display: none;
+    }
+    canvas {
+      border: 2px solid #000;
+      max-width: 100%;
+      max-height: 100vh;
+      width: auto;
+      height: auto;
+    }
+    #backgroundCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+    #gameCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 2;
+      background: transparent;
+    }
+    #instructions {
+      position: absolute;
+      top: 20px;
+      color: #fff;
+      text-align: center;
+      font-size: 18px;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    }
+    #celebration {
+      display: none;
+      position: absolute;
+      left: 10px;
+      top: 60px;
+      width: 150px;
+      height: auto;
+      z-index: 10;
+      animation: fadeInOut 3s ease-in-out;
+    }
+    #pauseButton {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      padding: 10px 20px;
+      font-size: 16px;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      z-index: 10;
+    }
+    #pauseButton:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+    }
+    #pauseScreen {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 15;
+    }
+    #pauseScreen h2 {
+      color: #fff;
+      font-size: 36px;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    }
+    #resumeButton {
+      padding: 15px 40px;
+      font-size: 24px;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #4CAF50, #2E7D32);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    #resumeButton:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+    }
+    #gameOverScreen {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 15;
+    }
+    #gameOverScreen h2 {
+      color: #fff;
+      font-size: 36px;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      margin: 10px;
+    }
+    #restartButton {
+      padding: 15px 40px;
+      font-size: 24px;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    #restartButton:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+    }
+    #startScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #4CAF50, #2E7D32);
+      color: white;
+      text-align: center;
+      transition: opacity 0.5s ease;
+      z-index: 20;
+    }
+    #startScreen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #startScreen h1 {
+      font-size: 48px;
+      text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.5);
+      margin-bottom: 20px;
+    }
+    #startButton {
+      padding: 15px 40px;
+      font-size: 24px;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #FFD700, #FFA500);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    #startButton:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+    }
+    #joystick {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      width: 100px;
+      height: 100px;
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      display: none;
+      z-index: 10;
+    }
+    #joystickInner {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      background: #FFD700;
+      border-radius: 50%;
+      top: 25px;
+      left: 25px;
+    }
+    #errorMessage {
+      position: absolute;
+      top: 80px;
+      left: 10px;
+      color: red;
+      font-size: 14px;
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+      display: none;
+    }
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: scale(0.8); }
+      20% { opacity: 1; transform: scale(1); }
+      80% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(0.8); }
+    }
+  </style>
+</head>
+<body>
+  <div id="startScreen">
+    <h1>Minijuego de Fútbol</h1>
+    <button id="startButton">JUGAR</button>
+  </div>
+  <div id="gameContainer">
+    <div id="instructions">Usa las teclas de flecha o el joystick táctil para mover al jugador hasta la meta. ¡Evita los obstáculos!</div>
+    <canvas id="backgroundCanvas" width="800" height="400"></canvas>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <button id="pauseButton">PAUSA</button>
+    <div id="pauseScreen">
+      <h2>Juego Pausado</h2>
+      <button id="resumeButton">Reanudar</button>
+    </div>
+    <div id="gameOverScreen">
+      <h2>¡Juego Terminado!</h2>
+      <h2 id="finalScore">Puntuación: 0</h2>
+      <h2 id="highScore">Mejor Puntuación: 0</h2>
+      <button id="restartButton">Reiniciar</button>
+    </div>
+    <div id="joystick">
+      <div id="joystickInner"></div>
+    </div>
+    <img id="celebration" src="https://gifdb.com/images/high/cristiano-ronaldo-turning-jump-siu-8s0y32a1nx9a4fkp.gif" alt="Cristiano Ronaldo Celebration">
+    <div id="errorMessage">Error al cargar algunos recursos. Usando fallbacks.</div>
+  </div>
+  <audio id="goalSound" src="https://freesound.org/data/previews/171/171671_2437358-lq.mp3"></audio>
+  <script>
+    const backgroundCanvas = document.getElementById('backgroundCanvas');
+    const gameCanvas = document.getElementById('gameCanvas');
+    const bgCtx = backgroundCanvas.getContext('2d');
+    const ctx = gameCanvas.getContext('2d');
+    const startScreen = document.getElementById('startScreen');
+    const gameContainer = document.getElementById('gameContainer');
+    const startButton = document.getElementById('startButton');
+    const pauseButton = document.getElementById('pauseButton');
+    const pauseScreen = document.getElementById('pauseScreen');
+    const resumeButton = document.getElementById('resumeButton');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const restartButton = document.getElementById('restartButton');
+    const finalScore = document.getElementById('finalScore');
+    const highScoreDisplay = document.getElementById('highScore');
+    const joystick = document.getElementById('joystick');
+    const joystickInner = document.getElementById('joystickInner');
+    const errorMessage = document.getElementById('errorMessage');
+
+    // Cargar recursos
+    const playerImage = new Image();
+    playerImage.src = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png';
+    const grassPattern = new Image();
+    grassPattern.src = 'https://opengameart.org/sites/default/files/grass.png';
+    const obstacleImage = new Image();
+    obstacleImage.src = 'https://opengameart.org/sites/default/files/traffic_cone.png';
+
+    // Objetos del juego
+    const player = {
+      x: 50,
+      y: gameCanvas.height / 2,
+      width: 100, // Aumentado para hacer al jugador más grande
+      height: 100, // Aumentado para hacer al jugador más grande
+      speed: 5
+    };
+
+    const goal = {
+      x: gameCanvas.width - 50,
+      y: gameCanvas.height / 2 - 30,
+      width: 30,
+      height: 60,
+      glowTime: 0
+    };
+
+    const obstacles = [
+      { x: 200, y: 100, width: 40, height: 40, speed: 2, pulse: 1 },
+      { x: 400, y: 200, width: 40, height: 40, speed: -2, pulse: 1 },
+      { x: 600, y: 300, width: 40, height: 40, speed: 2, pulse: 1 }
+    ];
+
+    let score = 0;
+    let highScore = localStorage.getItem('highScore') ? parseInt(localStorage.getItem('highScore')) : 0;
+    let gameOver = false;
+    let paused = false;
+    let accelerated = false;
+    let playerImageLoaded = false;
+    let grassPatternLoaded = false;
+    let obstacleImageLoaded = false;
+    let hasError = false;
+    const particles = [];
+    let pulseTime = 0;
+    let gameStarted = false;
+
+    // Partículas para goles
+    class Particle {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.size = Math.random() * 5 + 1;
+        this.speedX = Math.random() * 3 - 1.5;
+        this.speedY = Math.random() * 3 - 1.5;
+      }
+      update() {
+        this.x += this.speedX;
+        this.y += this.speedY;
+        this.size -= 0.1;
+      }
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fillStyle = 'yellow';
+        ctx.fill();
+      }
+    }
+
+    // Controles de teclado
+    const keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key in keys) keys[e.key] = true;
+    });
+    document.addEventListener('keyup', (e) => {
+      if (e.key in keys) keys[e.key] = false;
+    });
+
+    // Controles táctiles
+    let touchActive = false;
+    let touchX = 0;
+    let touchY = 0;
+    const joystickCenter = { x: 50, y: 50 };
+
+    joystick.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchActive = true;
+      const touch = e.touches[0];
+      touchX = touch.clientX - joystick.offsetLeft;
+      touchY = touch.clientY - joystick.offsetTop;
+      updateJoystick();
+    });
+    joystick.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      touchX = touch.clientX - joystick.offsetLeft;
+      touchY = touch.clientY - joystick.offsetTop;
+      updateJoystick();
+    });
+    joystick.addEventListener('touchend', () => {
+      touchActive = false;
+      joystickInner.style.left = '25px';
+      joystickInner.style.top = '25px';
+    });
+
+    function updateJoystick() {
+      const dx = touchX - joystickCenter.x;
+      const dy = touchY - joystickCenter.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const maxDistance = 50;
+      const angle = Math.atan2(dy, dx);
+      let moveX = 0, moveY = 0;
+      if (distance > maxDistance) {
+        moveX = Math.cos(angle) * maxDistance;
+        moveY = Math.sin(angle) * maxDistance;
+      } else {
+        moveX = dx;
+        moveY = dy;
+      }
+      joystickInner.style.left = `${25 + moveX}px`;
+      joystickInner.style.top = `${25 + moveY}px`;
+      player.x += (moveX / maxDistance) * player.speed;
+      player.y += (moveY / maxDistance) * player.speed;
+    }
+
+    // Hacer responsivo
+    function resizeCanvas() {
+      const container = document.getElementById('gameContainer');
+      const aspectRatio = 800 / 400;
+      let newWidth = window.innerWidth * 0.8;
+      let newHeight = newWidth / aspectRatio;
+      if (newHeight > window.innerHeight * 0.8) {
+        newHeight = window.innerHeight * 0.8;
+        newWidth = newHeight * aspectRatio;
+      }
+      backgroundCanvas.width = gameCanvas.width = newWidth;
+      backgroundCanvas.height = gameCanvas.height = newHeight;
+      goal.x = gameCanvas.width - 50;
+      player.y = gameCanvas.height / 2;
+      obstacles.forEach(obstacle => {
+        obstacle.y = Math.min(obstacle.y, gameCanvas.height - obstacle.height);
+      });
+      container.style.width = `${newWidth}px`;
+      container.style.height = `${newHeight}px`;
+      drawBackground();
+      joystick.style.display = window.innerWidth <= 768 && gameStarted ? 'block' : 'none';
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // Dibujar fondo
+    function drawBackground() {
+      if (grassPatternLoaded) {
+        const pattern = bgCtx.createPattern(grassPattern, 'repeat');
+        bgCtx.fillStyle = pattern;
+      } else {
+        bgCtx.fillStyle = '#4CAF50';
+      }
+      bgCtx.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+    }
+
+    // Función para detectar colisiones
+    function isColliding(rect1, rect2) {
+      return rect1.x < rect2.x + rect2.width &&
+             rect1.x + rect1.width > rect2.x &&
+             rect1.y < rect2.y + rect2.height &&
+             rect1.y + rect1.height > rect2.y;
+    }
+
+    // Reiniciar juego
+    function resetGame() {
+      score = 0;
+      gameOver = false;
+      paused = false;
+      accelerated = false;
+      player.x = 50;
+      player.y = gameCanvas.height / 2;
+      obstacles.forEach((obstacle, index) => {
+        obstacle.x = 200 + index * 200;
+        obstacle.y = 100 + index * 100;
+        obstacle.speed = index % 2 === 0 ? 2 : -2;
+      });
+      particles.length = 0;
+      gameOverScreen.style.display = 'none';
+      joystick.style.display = window.innerWidth <= 768 ? 'block' : 'none';
+      gameStarted = true;
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Bucle principal del juego
+    function gameLoop(timestamp) {
+      // Limpiar el lienzo en cada fotograma
+      ctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+
+      if (!gameStarted) {
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      if (paused || gameOver) {
+        if (gameOver) {
+          finalScore.textContent = `Puntuación: ${score}`;
+          highScoreDisplay.textContent = `Mejor Puntuación: ${highScore}`;
+          gameOverScreen.style.display = 'flex';
+          joystick.style.display = 'none';
+        }
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      // Actualizar pulso de obstáculos
+      pulseTime += 0.05;
+      obstacles.forEach(obstacle => {
+        obstacle.pulse = 1 + Math.sin(pulseTime) * 0.1;
+      });
+
+      // Actualizar efecto de destello de la meta
+      goal.glowTime += 0.05;
+      const glowIntensity = Math.sin(goal.glowTime) * 5 + 5;
+
+      // Actualizar posición del jugador (teclado)
+      if (keys.ArrowUp) player.y -= player.speed;
+      if (keys.ArrowDown) player.y += player.speed;
+      if (keys.ArrowLeft) player.x -= player.speed;
+      if (keys.ArrowRight) player.x += player.speed;
+
+      // Limitar el jugador dentro del canvas
+      player.x = Math.max(0, Math.min(gameCanvas.width - player.width, player.x));
+      player.y = Math.max(0, Math.min(gameCanvas.height - player.height, player.y));
+
+      // Mover obstáculos
+      obstacles.forEach(obstacle => {
+        obstacle.y += obstacle.speed;
+        if (obstacle.y <= 0 || obstacle.y + obstacle.height >= gameCanvas.height) {
+          obstacle.speed = -obstacle.speed;
+        }
+      });
+
+      // Detectar colisión con obstáculos
+      obstacles.forEach(obstacle => {
+        if (isColliding(
+          { x: player.x, y: player.y, width: player.width, height: player.height },
+          obstacle
+        )) {
+          gameOver = true;
+          if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('highScore', highScore);
+          }
+        }
+      });
+
+      // Detectar llegada a la meta
+      if (isColliding(
+        { x: player.x, y: player.y, width: player.width, height: player.height },
+        goal
+      )) {
+        score += 10;
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('highScore', highScore);
+        }
+        document.getElementById('goalSound').play().catch(e => console.log('Error al reproducir sonido:', e));
+        const celeb = document.getElementById('celebration');
+        celeb.style.display = 'block';
+        setTimeout(() => { celeb.style.display = 'none'; }, 3000);
+        for (let i = 0; i < 50; i++) {
+          particles.push(new Particle(player.x + player.width / 2, player.y + player.height / 2));
+        }
+        if (score > 50 && !accelerated) {
+          accelerated = true;
+          obstacles.forEach(obstacle => { obstacle.speed *= 2; });
+        }
+        obstacles.forEach(obstacle => { obstacle.speed *= 1.2; });
+        player.x = 50;
+        player.y = gameCanvas.height / 2;
+      }
+
+      // Actualizar partículas
+      particles.forEach((p, i) => {
+        p.update();
+        if (p.size <= 0) particles.splice(i, 1);
+      });
+
+      // Dibujar en gameCanvas
+      // Dibujar jugador
+      if (playerImageLoaded && playerImage.complete && playerImage.naturalWidth !== 0) {
+        ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
+      } else {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(player.x, player.y, player.width, player.height);
+      }
+
+      // Dibujar meta con efecto de destello
+      ctx.save();
+      ctx.shadowColor = 'yellow';
+      ctx.shadowBlur = glowIntensity;
+      ctx.fillStyle = 'yellow';
+      ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+      ctx.restore();
+
+      // Dibujar obstáculos con pulso y borde
+      if (obstacleImageLoaded && obstacleImage.complete && obstacleImage.naturalWidth !== 0) {
+        obstacles.forEach(obstacle => {
+          ctx.save();
+          ctx.translate(obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2);
+          ctx.scale(obstacle.pulse, obstacle.pulse);
+          ctx.drawImage(obstacleImage, -obstacle.width / 2, -obstacle.height / 2, obstacle.width, obstacle.height);
+          ctx.strokeStyle = 'white';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(-obstacle.width / 2, -obstacle.height / 2, obstacle.width, obstacle.height);
+          ctx.restore();
+        });
+      } else {
+        ctx.fillStyle = 'red';
+        obstacles.forEach(obstacle => {
+          ctx.save();
+          ctx.translate(obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2);
+          ctx.scale(obstacle.pulse, obstacle.pulse);
+          ctx.fillRect(-obstacle.width / 2, -obstacle.height / 2, obstacle.width, obstacle.height);
+          ctx.strokeStyle = 'white';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(-obstacle.width / 2, -obstacle.height / 2, obstacle.width, obstacle.height);
+          ctx.restore();
+        });
+      }
+
+      // Dibujar partículas
+      particles.forEach(p => p.draw());
+
+      // Dibujar puntuación y high score
+      ctx.fillStyle = 'white';
+      ctx.font = '20px Roboto';
+      ctx.shadowColor = 'black';
+      ctx.shadowBlur = 5;
+      ctx.fillText(`Puntuación: ${score}`, 10, 30);
+      ctx.fillText(`Mejor Puntuación: ${highScore}`, 10, 60);
+      ctx.shadowBlur = 0;
+
+      // Mostrar mensaje de error si hay fallos
+      if (hasError) {
+        errorMessage.style.display = 'block';
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Cargar recursos
+    playerImage.onload = () => {
+      playerImageLoaded = true;
+      console.log('Imagen del jugador cargada correctamente');
+    };
+    playerImage.onerror = () => {
+      playerImageLoaded = false;
+      hasError = true;
+      console.error('Error al cargar imagen del jugador');
+    };
+    grassPattern.onload = () => {
+      grassPatternLoaded = true;
+      drawBackground();
+      console.log('Textura de césped cargada correctamente');
+    };
+    grassPattern.onerror = () => {
+      grassPatternLoaded = false;
+      hasError = true;
+      console.error('Error al cargar textura de césped');
+      drawBackground();
+    };
+    obstacleImage.onload = () => {
+      obstacleImageLoaded = true;
+      console.log('Imagen de obstáculo cargada correctamente');
+    };
+    obstacleImage.onerror = () => {
+      obstacleImageLoaded = false;
+      hasError = true;
+      console.error('Error al cargar imagen de obstáculo');
+    };
+
+    // Manejo de pausa
+    pauseButton.addEventListener('click', () => {
+      paused = true;
+      pauseScreen.style.display = 'flex';
+      joystick.style.display = 'none';
+    });
+    resumeButton.addEventListener('click', () => {
+      paused = false;
+      pauseScreen.style.display = 'none';
+      joystick.style.display = window.innerWidth <= 768 ? 'block' : 'none';
+      requestAnimationFrame(gameLoop);
+    });
+
+    // Manejo de reinicio
+    restartButton.addEventListener('click', () => {
+      resetGame();
+    });
+
+    // Iniciar juego al hacer clic en JUGAR
+    startButton.addEventListener('click', () => {
+      startScreen.classList.add('hidden');
+      setTimeout(() => {
+        startScreen.style.display = 'none';
+        gameContainer.style.display = 'block';
+        resizeCanvas();
+        gameStarted = true;
+        Promise.all([
+          new Promise(resolve => {
+            if (playerImage.complete && playerImage.naturalWidth !== 0) {
+              playerImageLoaded = true;
+              resolve();
+            } else {
+              playerImage.onload = () => { playerImageLoaded = true; resolve(); };
+              playerImage.onerror = () => { playerImageLoaded = false; hasError = true; resolve(); };
+            }
+          }),
+          new Promise(resolve => {
+            if (grassPattern.complete && grassPattern.naturalWidth !== 0) {
+              grassPatternLoaded = true;
+              drawBackground();
+              resolve();
+            } else {
+              grassPattern.onload = () => { grassPatternLoaded = true; drawBackground(); resolve(); };
+              grassPattern.onerror = () => { grassPatternLoaded = false; hasError = true; drawBackground(); resolve(); };
+            }
+          }),
+          new Promise(resolve => {
+            if (obstacleImage.complete && obstacleImage.naturalWidth !== 0) {
+              obstacleImageLoaded = true;
+              resolve();
+            } else {
+              obstacleImage.onload = () => { obstacleImageLoaded = true; resolve(); };
+              obstacleImage.onerror = () => { obstacleImageLoaded = false; hasError = true; resolve(); };
+            }
+          })
+        ]).then(() => {
+          console.log('Recursos cargados, iniciando gameLoop');
+          requestAnimationFrame(gameLoop);
+        });
+      }, 500);
+    });
+
+    // Iniciar el bucle para asegurar que el lienzo esté listo
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
